@@ -1,0 +1,20 @@
+system:
+  loop_interval_sec: 5
+  weather_poll_sec: 900
+  db_path: data/microgrid.db
+
+location:
+  latitude: 18.52
+  longitude: 73.86
+
+battery:
+  soc_min: 20.0
+  soc_max: 90.0
+  capacity_kwh: 200.0
+  max_charge_kw: 50.0
+  max_discharge_kw: 50.0
+
+grid:
+  max_import_kw: 100.0
+  nominal_freq_hz: 50.0
+  freq_tolerance_hz: 0.8
