@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microgrid Energy Management Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f7f6; margin: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+        .card h3 { margin: 0; color: #555; font-size: 14px; }
+        .card p { margin: 10px 0 0; font-size: 22px; font-weight: bold; color: #222; }
+        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <h2>Microgrid Control Center</h2>
+    <div class="grid">
+        <div class="card"><h3>System State</h3><p id="system-state">--</p></div>
+        <div class="card"><h3>Battery SoC</h3><p id="battery-soc">--%</p></div>
+        <div class="card"><h3>Grid Power</h3><p id="grid-power">-- kW</p></div>
+        <div class="card"><h3>Operating Cost</h3><p id="opt-cost">$--</p></div>
+    </div>
+    <div class="chart-container">
+        <canvas id="telemetryChart" height="100"></canvas>
+    </div>
+
+    <script>
+        let chart;
+        async function updateDashboard() {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            if (!data.id) return;
+
+            document.getElementById('system-state').innerText = data.system_state;
+            document.getElementById('battery-soc').innerText = data.battery_soc + '%';
+            document.getElementById('grid-power').innerText = data.grid_cmd_kw + ' kW';
+            document.getElementById('opt-cost').innerText = '$' + data.optimization_cost;
+
+            const histRes = await fetch('/api/history?limit=15');
+            const histData = (await histRes.json()).reverse();
+
+            const labels = histData.map(d => d.timestamp.split(' ')[1]);
+            const solar = histData.map(d => d.solar_kw);
+            const load = histData.map(d => d.load_kw);
+            const battery = histData.map(d => d.battery_cmd_kw);
+
+            if (!chart) {
+                const ctx = document.getElementById('telemetryChart').getContext('2d');
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            { label: 'Solar Output (kW)', data: solar, borderColor: '#f39c12', fill: false },
+                            { label: 'Load Demand (kW)', data: load, borderColor: '#e74c3c', fill: false },
+                            { label: 'Battery Command (kW)', data: battery, borderColor: '#2ecc71', fill: false }
+                        ]
+                    }
+                });
+            } else {
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = solar;
+                chart.data.datasets[1].data = load;
+                chart.data.datasets[2].data = battery;
+                chart.update();
+            }
+        }
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+</html>
