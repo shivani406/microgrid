@@ -3,72 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Microgrid Energy Management Dashboard</title>
+    <title>Microgrid Control Center</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: Arial, sans-serif; background-color: #f4f7f6; margin: 20px; }
-        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
-        .card h3 { margin: 0; color: #555; font-size: 14px; }
-        .card p { margin: 10px 0 0; font-size: 22px; font-weight: bold; color: #222; }
-        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .dashboard_wrapper { display: flex; gap: 20px; }
+        .main_panel { flex: 3; }
+        .side_panel { flex: 1; background: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-height: 80vh; display: flex; flex-direction: column; }
+        .cards_grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+        .card h3 { margin: 0; color: #555; font-size: 12px; }
+        .card p { margin: 8px 0 0; font-size: 18px; font-weight: bold; color: #222; }
+        .chart_container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .logs_stream { overflow-y: auto; flex-grow: 1; font-family: monospace; font-size: 11px; background: #1e1e1e; color: #00ff00; padding: 10px; border-radius: 5px; }
+        .log_entry { border-bottom: 1px solid #333; padding: 4px 0; }
     </style>
 </head>
 <body>
-    <h2>Microgrid Control Center</h2>
-    <div class="grid">
-        <div class="card"><h3>System State</h3><p id="system-state">--</p></div>
-        <div class="card"><h3>Battery SoC</h3><p id="battery-soc">--%</p></div>
-        <div class="card"><h3>Grid Power</h3><p id="grid-power">-- kW</p></div>
-        <div class="card"><h3>Operating Cost</h3><p id="opt-cost">$--</p></div>
-    </div>
-    <div class="chart-container">
-        <canvas id="telemetryChart" height="100"></canvas>
+    <h2>Microgrid Real-Time Operational Dashboard</h2>
+    <div class="dashboard_wrapper">
+        <div class="main_panel">
+            <div class="cards_grid">
+                <div class="card"><h3>System State</h3><p id="system_state">--</p></div>
+                <div class="card"><h3>Battery SoC</h3><p id="battery_soc">--%</p></div>
+                <div class="card"><h3>Battery Cmd</h3><p id="battery_cmd_kw">-- kW</p></div>
+                <div class="card"><h3>Grid Cmd</h3><p id="grid_cmd_kw">-- kW</p></div>
+                <div class="card"><h3>Shed Cmd</h3><p id="shed_cmd_kw">-- kW</p></div>
+            </div>
+            <div class="chart_container">
+                <canvas id="telemetry_chart" height="110"></canvas>
+            </div>
+        </div>
+        <div class="side_panel">
+            <h3>Live Execution Logs</h3>
+            <div id="logs_stream" class="logs_stream"></div>
+        </div>
     </div>
 
     <script>
-        let chart;
-        async function updateDashboard() {
-            const res = await fetch('/api/status');
-            const data = await res.json();
-            if (!data.id) return;
+        let telemetry_chart;
+        let last_logged_id = null;
 
-            document.getElementById('system-state').innerText = data.system_state;
-            document.getElementById('battery-soc').innerText = data.battery_soc + '%';
-            document.getElementById('grid-power').innerText = data.grid_cmd_kw + ' kW';
-            document.getElementById('opt-cost').innerText = '$' + data.optimization_cost;
+        async function update_dashboard() {
+            const status_response = await fetch('/api/status');
+            const status_data = await status_response.json();
+            if (!status_data.id) return;
 
-            const histRes = await fetch('/api/history?limit=15');
-            const histData = (await histRes.json()).reverse();
+            document.getElementById('system_state').innerText = status_data.system_state;
+            document.getElementById('battery_soc').innerText = status_data.battery_soc + '%';
+            document.getElementById('battery_cmd_kw').innerText = status_data.battery_cmd_kw + ' kW';
+            document.getElementById('grid_cmd_kw').innerText = status_data.grid_cmd_kw + ' kW';
+            document.getElementById('shed_cmd_kw').innerText = status_data.shed_cmd_kw + ' kW';
 
-            const labels = histData.map(d => d.timestamp.split(' ')[1]);
-            const solar = histData.map(d => d.solar_kw);
-            const load = histData.map(d => d.load_kw);
-            const battery = histData.map(d => d.battery_cmd_kw);
+            const history_response = await fetch('/api/history?limit=15');
+            const history_data = (await history_response.json()).reverse();
 
-            if (!chart) {
-                const ctx = document.getElementById('telemetryChart').getContext('2d');
-                chart = new Chart(ctx, {
+            const chart_labels = history_data.map(item => item.timestamp.split(' ')[1]);
+            const solar_values = history_data.map(item => item.solar_kw);
+            const load_values = history_data.map(item => item.load_kw);
+            const battery_values = history_data.map(item => item.battery_cmd_kw);
+
+            if (!telemetry_chart) {
+                const chart_context = document.getElementById('telemetry_chart').getContext('2d');
+                telemetry_chart = new Chart(chart_context, {
                     type: 'line',
                     data: {
-                        labels: labels,
+                        labels: chart_labels,
                         datasets: [
-                            { label: 'Solar Output (kW)', data: solar, borderColor: '#f39c12', fill: false },
-                            { label: 'Load Demand (kW)', data: load, borderColor: '#e74c3c', fill: false },
-                            { label: 'Battery Command (kW)', data: battery, borderColor: '#2ecc71', fill: false }
+                            { label: 'Solar Output (kW)', data: solar_values, borderColor: '#f39c12', fill: false },
+                            { label: 'Load Demand (kW)', data: load_values, borderColor: '#e74c3c', fill: false },
+                            { label: 'Battery Command (kW)', data: battery_values, borderColor: '#2ecc71', fill: false }
                         ]
                     }
                 });
             } else {
-                chart.data.labels = labels;
-                chart.data.datasets[0].data = solar;
-                chart.data.datasets[1].data = load;
-                chart.data.datasets[2].data = battery;
-                chart.update();
+                telemetry_chart.data.labels = chart_labels;
+                telemetry_chart.data.datasets[0].data = solar_values;
+                telemetry_chart.data.datasets[1].data = load_values;
+                telemetry_chart.data.datasets[2].data = battery_values;
+                telemetry_chart.update();
+            }
+
+            if (status_data.id !== last_logged_id) {
+                last_logged_id = status_data.id;
+                const logs_container = document.getElementById('logs_stream');
+                const new_entry = document.createElement('div');
+                new_entry.className = 'log_entry';
+                new_entry.innerText = `[${status_data.timestamp.split(' ')[1]}] STATE: ${status_data.system_state} | BAT: ${status_data.battery_cmd_kw}kW | GRID: ${status_data.grid_cmd_kw}kW | SHED: ${status_data.shed_cmd_kw}kW`;
+                logs_container.insertBefore(new_entry, logs_container.firstChild);
             }
         }
-        setInterval(updateDashboard, 2000);
-        updateDashboard();
+
+        setInterval(update_dashboard, 2000);
+        update_dashboard();
     </script>
 </body>
 </html>
